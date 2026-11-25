@@ -4,15 +4,13 @@ from scipy.optimize import fsolve
 from scipy.stats import norm
 import yfinance as yf
 
-# ==========================================
-# 1. PARAMÈTRES (Modifiez uniquement le ticker)
-# ==========================================
+# 1. PARAMÈTRES
+
 ticker_symbol = input()  # Testez avec ticker au format yahoo finance
 T = 1.0  # Horizon standard d'1 an
 
-# ==========================================
 # 2. DONNÉES DE MARCHÉ & VOLATILITÉ (sigma_E)
-# ==========================================
+
 ticker = yf.Ticker(ticker_symbol)
 info = ticker.info
 
@@ -25,15 +23,14 @@ sigma_E = float(log_returns.std() * np.sqrt(252))
 
 # Capitalisation boursière (E) et devises
 E = float(info.get('marketCap'))
-stock_curr = info.get('currency')  # Devise de l'action (ex: USD)
-fin_curr = info.get('financialCurrency')  # Devise du bilan (ex: JPY)
+stock_curr = info.get('currency')  # Devise de l'action 
+fin_curr = info.get('financialCurrency')  # Devise du bilan 
 
-# ==========================================
 # 3. CONVERTISSEUR DYNAMIQUE DE DEVISES (FX)
-# ==========================================
+
 fx_rate = 1.0
 if stock_curr and fin_curr and stock_curr != fin_curr:
-    # Gestion des sous-unités (ex: GBp -> GBP)
+    # Gestion des sous-unités 
     if stock_curr == 'GBp':
         stock_curr = 'GBP'
         E /= 100.0
@@ -44,7 +41,7 @@ if stock_curr and fin_curr and stock_curr != fin_curr:
     if not fx_hist.empty:
         fx_rate = float(fx_hist['Close'].dropna().to_numpy()[-1])
     else:
-        # Tentative avec taux inversé si la paire directe n'existe pas
+        # Tentative avec taux inversé si la paire n'existe pas
         inv_ticker = f'{stock_curr}{fin_curr}=X'
         inv_hist = yf.Ticker(inv_ticker).history(period='5d')
         if not inv_hist.empty:
@@ -54,23 +51,22 @@ if stock_curr and fin_curr and stock_curr != fin_curr:
                 f'Impossible de récupérer le taux de change {fin_curr} -> {stock_curr}'
             )
 
-# ==========================================
-# 4. TAUX SANS RISQUE DYNAMIQUE (r)
-# ==========================================
+# 4. TAUX SANS RISQUE DYNAMIQUE EN FONCTION DE LA DEVISE (r)
+
 if stock_curr == 'USD':
     rf_ticker = yf.Ticker('^TNX')  # US Treasury 10 ans
     rf_val = rf_ticker.info.get('previousClose')
     r = (rf_val / 100) if rf_val else 0.04
 elif stock_curr == 'EUR':
-    rf_ticker = yf.Ticker('MFR10.AS')  # OAT France 10 ans
+    rf_ticker = yf.Ticker('MFR10.AS')  # PROXY EURONEXT OAT France 10 ans
     rf_val = rf_ticker.info.get('previousClose')
     r = (rf_val / 100) if rf_val else 0.03
 else:
     r = 0.03  # Taux par défaut pour les autres devises
 
-# ==========================================
+
 # 5. EXTRACTION DES DETTES & CONVERSION
-# ==========================================
+
 balance_sheet = ticker.balance_sheet
 
 
@@ -106,9 +102,8 @@ if D == 0:
     raise ValueError(f'Aucune dette trouvée pour {ticker_symbol}.')
 
 
-# ==========================================
 # 6. RÉSOLUTION DU SYSTÈME DE MERTON (V_A, sigma_A)
-# ==========================================
+
 def merton_equations(vars, E, sigma_E, D, r, T):
     V_A, sigma_A = vars
     if V_A <= 0 or sigma_A <= 0:
@@ -118,7 +113,7 @@ def merton_equations(vars, E, sigma_E, D, r, T):
 
     d2 = d1 - sigma_A * np.sqrt(T) # D2 de Black-Scholes-Merton
 
-    eq1 = V_A * norm.cdf(d1) - D * np.exp(-r * T) * norm.cdf(d2) - E # Equation menant à E (Market value of equity)
+    eq1 = V_A * norm.cdf(d1) - D * np.exp(-r * T) * norm.cdf(d2) - E # Equation menant à V_A (Market value of equity)
     eq2 = (V_A / E) * norm.cdf(d1) * sigma_A - sigma_E # Equation menant à la volatilité des capitaux sigma_A
 
     return [eq1, eq2]
@@ -127,9 +122,8 @@ def merton_equations(vars, E, sigma_E, D, r, T):
 initial_guess = [E + D, sigma_E * (E / (E + D))]
 V_A, sigma_A = fsolve(merton_equations, initial_guess, args=(E, sigma_E, D, r, T))
 
-# ==========================================
 # 7. CALCUL DE LA DISTANCE AU DÉFAUT & EDF
-# ==========================================
+
 DD = (np.log(V_A / D) + (r - 0.5 * sigma_A**2) * T) / (sigma_A * np.sqrt(T))
 EDF_theorique = norm.cdf(-DD)
 
@@ -171,9 +165,9 @@ EDF_empirique = empirical_edf(DD)
 EDF_notation = edf_to_notation(EDF_empirique * 100)
 
 
-# ==========================================
 # 8. AFFICHAGE DES RÉSULTATS
-# ==========================================
+
+
 print(f'=== RÉSULTATS POUR {ticker_symbol} ({stock_curr}) ===')
 if stock_curr != fin_curr:
     print(f'Conversion FX ({fin_curr} -> {stock_curr})   : {fx_rate:.6f}')
